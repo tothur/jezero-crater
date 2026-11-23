@@ -2723,6 +2723,7 @@ export function createTabletop({
           m ? `${m.x.toFixed(3)},${m.y.toFixed(3)},${m.z.toFixed(3)}` : '',
           uniforms.uLakeMola ? uniforms.uLakeMola.value.toFixed(1) : '',
           uniforms.uLakeActive ? uniforms.uLakeActive.value.toFixed(3) : '',
+          uniforms.uRiverReach ? uniforms.uRiverReach.value.toFixed(3) : '',
           uniforms.uInletFlow ? uniforms.uInletFlow.value.toFixed(3) : '',
           uniforms.uPlivaFlow ? uniforms.uPlivaFlow.value.toFixed(3) : '',
           uniforms.uFlashFlood ? uniforms.uFlashFlood.value.toFixed(3) : '',

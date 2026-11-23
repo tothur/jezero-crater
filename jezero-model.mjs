@@ -44,12 +44,15 @@ export function jezeroEvolution(u) {
   const lavaProgress = smooth(0.12, 0.26, x);
 
   // 2. Paleolake water surface elevation (MOLA areoid meters):
-  //    Dry (-2700 m) -> Closed-basin (-2500 m) -> Open-basin highstand (-2395 m) ->
-  //    Fluctuating delta progradation (-2425 m) -> Receding flash floods (-2550 m) -> Dry (-2700 m)
-  let lakeMola = -2700;
-  if (x >= 0.25 && x <= 0.84) {
-    if (x < 0.40) {
-      lakeMola = mix(-2670, -2500, smooth(0.26, 0.39, x));
+  //    Dry (-2706 m) -> Pioneer rivers reach center & begin pooling (-2706 -> -2682 m at u=0.29..0.315) ->
+  //    Closed-basin fills outward from center (-2500 m) -> Open-basin highstand (-2395 m) ->
+  //    Fluctuating delta progradation (-2425 m) -> Receding flash floods (-2550 m) -> Dry (-2706 m)
+  let lakeMola = -2706;
+  if (x >= 0.290 && x <= 0.84) {
+    if (x < 0.315) {
+      lakeMola = mix(-2706, -2678, smooth(0.290, 0.315, x));
+    } else if (x < 0.40) {
+      lakeMola = mix(-2678, -2500, smooth(0.315, 0.398, x));
     } else if (x < 0.54) {
       lakeMola = mix(-2500, -2395, smooth(0.40, 0.48, x));
     } else if (x < 0.68) {
@@ -58,19 +61,23 @@ export function jezeroEvolution(u) {
       const swing = 16 * Math.sin((x - 0.54) / 0.14 * Math.PI * 2.5);
       lakeMola = mix(-2420, -2472, (x - 0.54) / 0.14) + swing;
     } else {
-      lakeMola = mix(-2472, -2690, smooth(0.68, 0.83, x));
+      lakeMola = mix(-2472, -2706, smooth(0.68, 0.835, x));
     }
   }
-  const lakeActive = smooth(-2655, -2615, lakeMola);
+  const lakeActive = smooth(-2700, -2676, lakeMola);
 
-  // 3. Fluvial discharge rates (0..1) — varies realistically from narrow early/late streams
-  //    through strong highstand rivers, fluctuating delta flows, to catastrophic flash-flood surges!
+  // 3. Fluvial discharge rates (0..1) & pioneer river advance (riverReach: 0 -> 1 across dry crater floor):
+  //    Neretva & Sava enter first (u = 0.245..0.305), racing across the dry floor to the lowest central basin
+  //    (~-2704 m MOLA) BEFORE the paleolake pools and fills Jezero outward from the center!
+  const riverReach = smooth(0.248, 0.305, x);
   let inletFlow = 0;
-  if (x >= 0.25 && x <= 0.85) {
-    if (x < 0.40) {
-      inletFlow = mix(0.14, 0.54, smooth(0.25, 0.40, x));
+  if (x >= 0.245 && x <= 0.85) {
+    if (x < 0.31) {
+      inletFlow = mix(0.0, 0.44, smooth(0.245, 0.31, x));
+    } else if (x < 0.40) {
+      inletFlow = mix(0.44, 0.56, smooth(0.31, 0.40, x));
     } else if (x < 0.54) {
-      inletFlow = mix(0.54, 0.86, smooth(0.40, 0.50, x));
+      inletFlow = mix(0.56, 0.86, smooth(0.40, 0.50, x));
     } else if (x < 0.68) {
       // Millennial discharge pulses matching documented 15-40 m lake-level swings
       const pulse = 0.22 * Math.sin((x - 0.54) / 0.14 * Math.PI * 2.5);
@@ -106,6 +113,7 @@ export function jezeroEvolution(u) {
     lavaProgress,
     lakeMola,
     lakeActive,
+    riverReach,
     inletFlow,
     plivaFlow,
     flashFlood,

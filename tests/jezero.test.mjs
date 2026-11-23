@@ -31,9 +31,18 @@ test('jezeroEvolution models volcanism, closed lake, open-basin highstand, delta
   assert.ok(volc.volcOn > 0.8, `Expected Jezero Mons active volcanism, got ${volc.volcOn}`);
   assert.equal(volc.lakeActive, 0);
 
-  const closed = jezeroEvolution(0.36);
+  const pioneer = jezeroEvolution(0.275);
+  assert.ok(pioneer.inletFlow > 0.1, `Expected pioneer rivers active at u=0.275, got ${pioneer.inletFlow}`);
+  assert.ok(pioneer.riverReach > 0.2 && pioneer.riverReach < 0.9, `Expected rivers advancing across dry floor, got ${pioneer.riverReach}`);
+  assert.equal(pioneer.lakeActive, 0, 'Crater floor should still be dry while pioneer rivers race toward center');
+
+  const centerPool = jezeroEvolution(0.305);
+  assert.ok(centerPool.riverReach >= 0.99, `Expected pioneer rivers to reach crater center by u=0.305, got ${centerPool.riverReach}`);
+  assert.ok(centerPool.lakeActive > 0.2, `Expected central lake pooling once rivers arrive, got ${centerPool.lakeActive}`);
+
+  const closed = jezeroEvolution(0.37);
   assert.ok(closed.lakeActive > 0.9);
-  assert.ok(closed.lakeMola < -2480 && closed.lakeMola > -2560, `Closed lake expected ~-2500 m, got ${closed.lakeMola}`);
+  assert.ok(closed.lakeMola < -2480 && closed.lakeMola > -2590, `Closed lake expected filling toward ~-2500 m, got ${closed.lakeMola}`);
   assert.equal(closed.plivaFlow, 0);
 
   const high = jezeroEvolution(0.49);

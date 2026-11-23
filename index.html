@@ -338,8 +338,8 @@ body:not(.show-labels) .label { display: none; }
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { createTabletop } from './quest-tabletop.mjs?v=20261123jez6';
-import { jezeroAgeGa, jezeroEvolution, jezeroHeight, JEZERO_GLSL, createJezeroSim } from './jezero-model.mjs?v=20261123jez6';
+import { createTabletop } from './quest-tabletop.mjs?v=20261123jez7';
+import { jezeroAgeGa, jezeroEvolution, jezeroHeight, JEZERO_GLSL, createJezeroSim } from './jezero-model.mjs?v=20261123jez7';
 import { clipmapCenter } from './terrain-lod.mjs';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -377,8 +377,8 @@ const loads = [
   fetch('data/meta.json', { cache: 'no-store' }).then(r => r.json()).then(m => (tick(), m)),
   loadPng16('data/d2048.png'),
   loadPng16('data/aux1024.png'),
-  loadPngRGBA('data/hydro1024.png?v=5'),
-  loadPngRGBA('data/flow1024.png?v=3'),
+  loadPngRGBA('data/hydro1024.png?v=6'),
+  loadPngRGBA('data/flow1024.png?v=4'),
   new THREE.TextureLoader().loadAsync('data/sat.jpg').then(t => (tick(), t)),
 ];
 const [META, dRaw, auxRaw, hydroRaw, flowRaw, satTex] = await Promise.all(loads)
@@ -517,7 +517,12 @@ function heightAt(x, z, st = S) {
   const lakeD = Math.max(0, st.ev.lakeMola - mola) * st.ev.lakeActive * inBasin;
   const inOn = smooth(0.0, 0.08, st.ev.inletFlow + st.ev.flashFlood);
   const inStage = clamp(mix(0.28, 0.78, st.ev.inletFlow) + 0.24 * st.ev.flashFlood, 0.0, 1.0);
-  const inletD = Math.max(0, hydroAt(0, x, z) * 40.0 - (1.0 - inStage) * 18.0) * inOn;
+  const dMouth = Math.min(Math.hypot(x - (-23100), z - (-8200)), Math.hypot(x - (-15200), z - (-18200)));
+  const reachFront = mix(-800, 31500, st.ev.riverReach);
+  const reachMask = 1.0 - smooth(reachFront - 2800, reachFront + 700, dMouth);
+  const canyonD = Math.max(0, hydroAt(0, x, z) * 40.0 - (1.0 - inStage) * 18.0) * inOn * (1.0 - inBasin);
+  const pioneerD = Math.max(0, hydroAt(0, x, z) * 40.0 - (1.0 - inStage) * 11.0) * inOn * inBasin * reachMask;
+  const inletD = Math.max(canyonD, Math.min(pioneerD, 1.8));
   const outOn = smooth(0.0, 0.06, st.ev.plivaFlow);
   const outStage = clamp(mix(0.28, 0.92, st.ev.plivaFlow), 0.0, 1.0);
   const outletD = Math.max(0, hydroAt(1, x, z) * 40.0 - (1.0 - outStage) * 18.0) * outOn;
@@ -627,6 +632,7 @@ const U = {
   uMorph: { value: new THREE.Vector3(0, 0, 0) },
   uLakeMola: { value: -2395.0 },
   uLakeActive: { value: 1.0 },
+  uRiverReach: { value: 1.0 },
   uInletFlow: { value: 1.0 },
   uPlivaFlow: { value: 1.0 },
   uFlashFlood: { value: 0.0 },
@@ -643,7 +649,7 @@ const U = {
 const COMMON = /* glsl */`
 uniform sampler2D tD, tAux, tHydro, tFlow, tNoise, tSat;
 uniform float uND, uSize, uDatumZero, uExag, uHot, uTime, uBase, uIsBake;
-uniform float uLakeMola, uLakeActive, uInletFlow, uPlivaFlow, uFlashFlood, uCarbonate, uDepMode;
+uniform float uLakeMola, uLakeActive, uRiverReach, uInletFlow, uPlivaFlow, uFlashFlood, uCarbonate, uDepMode;
 uniform vec2 uCenter, uMonsPos;
 uniform vec3 uSkyZenith, uSkyHorizon, uSkySunGlow, uSunDirW;
 uniform sampler2D tDep; uniform vec2 uDepXZ; uniform float uDepS, uDepOn;
@@ -682,21 +688,32 @@ float waterDepthAt(vec2 xz, float mola, float auxBasin, out vec4 hydro, out floa
 
   float inOn = smoothstep(0.0, 0.08, uInletFlow + uFlashFlood);
   float inStage = clamp(mix(0.28, 0.78, uInletFlow) + 0.24 * uFlashFlood + wave * inOn, 0.05, 1.02);
-  float canyonInD = max(0.0, hydro.r * 40.0 - (1.0 - inStage) * 18.0) * inOn;
-
-  float outOn = smoothstep(0.0, 0.06, uPlivaFlow);
-  float outStage = clamp(mix(0.28, 0.92, uPlivaFlow) + wave * outOn, 0.05, 1.0);
-  float outletD = max(0.0, hydro.g * 40.0 - (1.0 - outStage) * 18.0) * outOn;
 
   // Braided distributary channels on the emergent growing Western & Northern Fan-Deltas
   float builtMask = 1.0 - smoothstep(0.25, 0.65, deltaUnbuiltMask(xz));
   float aboveLake = mix(1.0, smoothstep(-5.0, 2.0, mola - uLakeMola), uLakeActive);
   float distD = max(0.0, hydro.b * 24.0 - (1.0 - inStage) * 11.0) * inOn * builtMask * aboveLake;
 
-  float canyonD = max(canyonInD, outletD);
-  riverD = max(canyonD, distD);
-  // Keep shallow delta distributaries flush with the alluvial fan surface (no artificial humps!)
-  vertLift = max(lakeD, max(canyonD, min(distD, 2.2)));
+  // Smoothly transition from canyon inlet (outside basin) to pioneer crater-floor channels (inside basin)
+  // with zero seam/pinch at the Neretva & Sava breach mouths!
+  float dW = length(xz - vec2(-23100.0, -8200.0));
+  float dN = length(xz - vec2(-15200.0, -18200.0));
+  float dMouth = min(dW, dN);
+  float reachFront = mix(-800.0, 31500.0, uRiverReach);
+  float reachMask = 1.0 - smoothstep(reachFront - 2800.0, reachFront + 700.0, dMouth);
+  float onDeltaBuilt = builtMask * smoothstep(9500.0, 5200.0, dMouth);
+  float stageDrop = mix(18.0, 11.0, inBasin);
+  float floorGate = mix(1.0, reachMask * (1.0 - onDeltaBuilt * 0.92), inBasin);
+  float inletAllD = max(0.0, hydro.r * 40.0 - (1.0 - inStage) * stageDrop) * inOn * floorGate;
+
+  float outOn = smoothstep(0.0, 0.06, uPlivaFlow);
+  float outStage = clamp(mix(0.28, 0.92, uPlivaFlow) + wave * outOn, 0.05, 1.0);
+  float outletD = max(0.0, hydro.g * 40.0 - (1.0 - outStage) * 18.0) * outOn;
+
+  riverD = max(max(inletAllD, outletD), distD);
+  // Keep shallow delta distributaries & pioneer crater-floor channels flush with the terrain (no artificial humps!)
+  float inletLift = mix(inletAllD, min(inletAllD, 1.8), inBasin);
+  vertLift = max(lakeD, max(max(inletLift, outletD), min(distD, 1.8)));
   return max(lakeD, riverD);
 }
 float baseH(vec2 xz, out vec4 aux) {
@@ -1389,6 +1406,7 @@ function apply(p) {
   U.uMorph.value.set(1 - ev.deltaProgress, ev.plivaFill, ev.belvaFill);
   U.uLakeMola.value = ev.lakeMola;
   U.uLakeActive.value = ev.lakeActive;
+  U.uRiverReach.value = ev.riverReach;
   U.uInletFlow.value = ev.inletFlow;
   U.uPlivaFlow.value = ev.plivaFlow;
   U.uFlashFlood.value = ev.flashFlood;

@@ -381,6 +381,45 @@ delta_branches.append(paint_delta_distributary(nd_trunk, 2.8, 2.3, bankfull_dept
 delta_branches.append(paint_delta_distributary(nd_west,  2.0, 1.2, bankfull_depth=12.0, speed_scale=0.74))
 delta_branches.append(paint_delta_distributary(nd_east,  1.9, 1.2, bankfull_depth=11.5, speed_scale=0.74))
 
+# 3b. PIONEER CRATER-FLOOR CHANNELS — early Closed-Basin rivers reaching all the way
+#     across the dry crater floor to the lowest central depression (~(0, +5500), -2692 m MOLA)
+#     before the central paleolake pools and fills Jezero Crater outward from the center!
+print('Building pioneer crater-floor channels to lowest central basin...', flush=True)
+ner_floor_main = trace_meandering_delta_branch([
+    (-23100, -8200),
+    (-19400, -6800),
+    (-15600, -5600),
+    (-11800, -2400),
+    (-8600, 600),
+    (-4800, 2600),
+    (-1400, 4800),
+    (1200, 5400),
+], amp_m=950.0, freq=5.2, phase=0.4)
+ner_floor_south = trace_meandering_delta_branch([
+    (-15600, -5600),
+    (-12400, -600),
+    (-9400, 3200),
+    (-5400, 6000),
+    (-1600, 6800),
+    (800, 5600),
+], amp_m=820.0, freq=4.6, phase=-1.2)
+sava_floor_main = trace_meandering_delta_branch([
+    (-15200, -18200),
+    (-13800, -14000),
+    (-10400, -10400),
+    (-8600, -5600),
+    (-4800, -1200),
+    (-2600, 2600),
+    (400, 5200),
+], amp_m=920.0, freq=4.8, phase=1.6)
+
+pioneer_branches = [
+    paint_delta_distributary(ner_floor_main,  4.4, 3.0, bankfull_depth=23.0, speed_scale=0.88),
+    paint_delta_distributary(ner_floor_south, 2.8, 2.1, bankfull_depth=18.0, speed_scale=0.76),
+    paint_delta_distributary(sava_floor_main, 3.4, 2.4, bankfull_depth=20.0, speed_scale=0.82),
+]
+pioneer_floor = np.maximum.reduce([b[0] for b in pioneer_branches])
+
 # 4. PLIVA VALLIS OUTLET SPILLWAY — true flat-surface spillway gorge (the user's favorite!)
 print('Tracing Pliva Vallis spillway (true flat cross-section)...', flush=True)
 pliva_path = trace_incised_thalweg([
@@ -414,7 +453,7 @@ d_pli, vx_pli, vz_pli, rap_pli, spd_pli = flood_canyon_flat(
 #     G = vz * 0.5 + 0.5
 #     B = hydraulic rapids & flow speed (0..1)
 #     A = 255
-canyon_inlet = np.maximum.reduce([d_ner, d_nst, d_sav])
+canyon_inlet = np.maximum.reduce([d_ner, d_nst, d_sav, pioneer_floor])
 delta_dist = np.maximum.reduce([b[0] for b in delta_branches])
 outlet_depth = d_pli
 
@@ -424,7 +463,7 @@ parts = [
     (d_nst * 0.75, vx_nst, vz_nst, rap_nst, spd_nst),
     (d_sav, vx_sav, vz_sav, rap_sav, spd_sav),
     (d_pli, vx_pli, vz_pli, rap_pli, spd_pli),
-] + delta_branches
+] + delta_branches + pioneer_branches
 
 w_sum = np.full((N, N), 1e-5, dtype=np.float32)
 vx_all = np.zeros((N, N), dtype=np.float32)
