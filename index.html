@@ -338,8 +338,8 @@ body:not(.show-labels) .label { display: none; }
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { createTabletop } from './quest-tabletop.mjs?v=20261122jez5';
-import { jezeroAgeGa, jezeroEvolution, jezeroHeight, JEZERO_GLSL, createJezeroSim } from './jezero-model.mjs?v=20261122jez5';
+import { createTabletop } from './quest-tabletop.mjs?v=20261123jez6';
+import { jezeroAgeGa, jezeroEvolution, jezeroHeight, JEZERO_GLSL, createJezeroSim } from './jezero-model.mjs?v=20261123jez6';
 import { clipmapCenter } from './terrain-lod.mjs';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -2032,6 +2032,13 @@ function frame(now, xrFrame) {
   ghost.scale.y = exag;
 
   if (tabletop.active) { tabletop.update(xrFrame, dt); renderer.render(tabletop.scene, camera); return; }
+  if (VR_PREVIEW) {
+    vrCam.aspect = camera.aspect;
+    vrCam.updateProjectionMatrix();
+    renderer.setClearColor(0x161a20, 1);
+    tabletop.renderPreview(vrCam);
+    return;
+  }
   const ground = updateCamera(dt);
   sky.position.copy(camera.position);
   updateLOD();
@@ -2047,10 +2054,14 @@ function frame(now, xrFrame) {
   updateNavUI(dt, ground);
 }
 
+const VR_PREVIEW = location.search.includes('vrpreview');
+const vrCam = new THREE.PerspectiveCamera(42, 1, 0.02, 20);
+vrCam.position.set(-0.34, 0.24, 0.42);
+vrCam.lookAt(0.02, 0.03, 0.0);
 apply(P);
 renderer.setAnimationLoop(frame);
 requestAnimationFrame(() => $('loading').classList.add('done'));
 if (location.search.includes('debug')) {
-  window.__dbg = { D, ND, bil, HALF, SIZE, DATUM_ZERO, setLight, setExag, groundAt, heightAt, molaHeightAt, setMode, VIEWS, pickTerrain, camera, controls, U, renderer, setP: p => { setPlaying(false); setP(p); apply(p); }, smoke, glow, jezeroSim, MONS, WDELTA, PLIVA, CRATER };
+  window.__dbg = { D, ND, bil, HALF, SIZE, DATUM_ZERO, setLight, setExag, groundAt, heightAt, molaHeightAt, setMode, VIEWS, pickTerrain, camera, controls, U, renderer, tabletop, setP: p => { setPlaying(false); setP(p); apply(p); }, smoke, glow, jezeroSim, MONS, WDELTA, PLIVA, CRATER };
 }
 </script>

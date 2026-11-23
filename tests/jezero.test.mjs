@@ -135,3 +135,11 @@ test('clipmapCenter snaps cleanly', () => {
   assert.equal(Math.abs(c.x % 32), 0);
   assert.equal(Math.abs(c.z % 32), 0);
 });
+
+test('quest-tabletop.mjs uses GLSL3 bake shaders and tracks Jezero height uniforms (never skips first height bake)', () => {
+  const qt = fs.readFileSync(path.join(root, 'quest-tabletop.mjs'), 'utf8');
+  assert.match(qt, /glslVersion:\s*THREE\.GLSL3/);
+  assert.match(qt, /lastBakedHeightKey\s*=\s*null/);
+  assert.match(qt, /uniforms\.uLakeMola/);
+  assert.doesNotMatch(qt, /uniforms\.uParoxState/);
+});

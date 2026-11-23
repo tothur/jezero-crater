@@ -181,13 +181,15 @@ export function hitTestPanel(u, v) {
  * Uses cubic coordinate warping so the central summit dome, crater and breach notch
  * receive ~23 m vertex spacing at 192x192 while keeping Quest 3 vertex load fast.
  */
-export function buildTabletopTerrainGeometry(cx, cz, span = 34000, N = 192) {
+export function buildTabletopTerrainGeometry(cx, cz, span = 78000, N = 224) {
   const G = N + 1;
   const count = G * G;
   const xs = new Float32Array(G);
   const zs = new Float32Array(G);
   const half = span * 0.5;
-  const warp = u => u * (0.28 + 0.72 * u * u);
+  // Balanced basin warp so the 45 km crater rim, Neretva/Pliva canyons, Western Delta & Jezero Mons
+  // all receive crisp 3D vertex resolution across the full 78 km tabletop
+  const warp = u => u * (0.78 + 0.22 * u * u);
 
   for (let i = 0; i <= N; i++) {
     const u = (i / N) * 2 - 1;
@@ -455,7 +457,7 @@ attribute float iRot;
 attribute vec4 iCol;
 attribute vec4 iPar;
 uniform vec3 uCamRLocal, uCamULocal, uCamPosLocal, uSunDirLocal;
-uniform float uPuffScale;
+uniform float uPuffScale, uReliefBoost;
 varying vec2 vAtlasUv;
 varying float vUvY;
 varying vec4 vCol;
@@ -468,7 +470,8 @@ void main() {
   float c = cos(iRot), s = sin(iRot);
   vec2 r = vec2(c * q.x - s * q.y, s * q.x + c * q.y);
   float sz = max(iSize * uPuffScale, 1.0);
-  vec3 wp = iPos + (uCamRLocal * r.x + uCamULocal * r.y) * sz;
+  vec3 basePos = vec3(iPos.x, iPos.y * uReliefBoost, iPos.z);
+  vec3 wp = basePos + (uCamRLocal * r.x + uCamULocal * r.y) * sz;
   vec2 uv = q + 0.5;
   vec2 cell = vec2(mod(iPar.y, 2.0), floor(iPar.y * 0.5));
   vAtlasUv = (cell + uv) * 0.5;
@@ -478,7 +481,7 @@ void main() {
   vCS = vec2(c, s);
   vec3 toP = wp - uCamPosLocal;
   float dist = length(toP);
-  vFade = smoothstep(-0.08, 0.30, (wp.y - iPar.z) / sz) * smoothstep(0.15, 0.80, dist / sz);
+  vFade = smoothstep(-0.08, 0.30, (wp.y - iPar.z * uReliefBoost) / sz) * smoothstep(0.15, 0.80, dist / sz);
   float sf = dist > 1e-3 ? max(dot(toP / dist, uSunDirLocal), 0.0) : 0.0;
   float sf2 = sf * sf;
   vSilver = sf2 * sf2 * sf * 1.5;
@@ -519,11 +522,11 @@ attribute vec3 iPos;
 attribute vec3 iVel;
 attribute float iSize;
 attribute vec4 iCol;
-uniform float uStreak, uWorldScale;
+uniform float uStreak, uWorldScale, uReliefBoost;
 varying vec2 vQ;
 varying vec4 vCol;
 void main() {
-  vec4 mv = modelViewMatrix * vec4(iPos, 1.0);
+  vec4 mv = modelViewMatrix * vec4(iPos.x, iPos.y * uReliefBoost, iPos.z, 1.0);
   float baseS = iSize * uWorldScale * 3.1;
   float minS = max(0.0016, -mv.z * 0.0038);
   float sz = max(baseS, minS);
@@ -741,8 +744,11 @@ export function createTabletop({
   const tableNormalMat = { value: new THREE.Matrix3() };
   const hasGPUShaders = !!(uniforms && commonGLSL && fragColorGLSL && fragEmisGLSL);
 
-  // High-resolution summit-focused terrain mesh (192x192 warped -> ~23 m summit spacing, fast stereo vertex budget)
-  const terrainGeom = buildTabletopTerrainGeometry(cx, cz, span, 192);
+  // Sculptural tabletop relief multiplier for a 78 km wide Martian crater basin on a 42-65 cm desk
+  const TABLETOP_RELIEF_BOOST = 2.4;
+
+  // High-resolution basin-balanced terrain mesh (224x224 -> crisp 3D crater rim, canyons, delta & Jezero Mons)
+  const terrainGeom = buildTabletopTerrainGeometry(cx, cz, span, 224);
   let terrainColors = null;
   let terrainMat;
   let bakeTerrain = null;
@@ -787,18 +793,21 @@ export function createTabletop({
     bakeQuad.frustumCulled = false;
     bakeScene.add(bakeQuad);
 
+    // Pure GLSL ES 3.00 bake shaders (matches texelFetch / textureLod / texture / const mat2 in commonGLSL & fragColorGLSL!)
     const BAKE_VS = /* glsl */`
-      varying vec2 vUv;
+      out vec2 vUv;
       void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
     `;
 
     const bakeHeightMat = rtHeight ? new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
       uniforms: bakeUniforms,
       vertexShader: BAKE_VS,
       fragmentShader: commonGLSL + /* glsl */`
         uniform vec2 uTableCenter;
         uniform float uTableSpan, uBakeStep;
-        varying vec2 vUv;
+        in vec2 vUv;
+        out vec4 outColor;
         void main() {
           vec2 wp = uTableCenter + (vUv - 0.5) * uTableSpan;
           vec4 aux;
@@ -808,7 +817,7 @@ export function createTabletop({
           float hx0 = terrainH(wp - vec2(e, 0.0), uBakeStep, aux);
           float hz1 = terrainH(wp + vec2(0.0, e), uBakeStep, aux);
           float hz0 = terrainH(wp - vec2(0.0, e), uBakeStep, aux);
-          gl_FragColor = vec4(h, (hx1 - hx0) / (2.0 * e), (hz1 - hz0) / (2.0 * e), 1.0);
+          outColor = vec4(h, (hx1 - hx0) / (2.0 * e), (hz1 - hz0) / (2.0 * e), 1.0);
         }
       `,
       depthTest: false,
@@ -816,12 +825,14 @@ export function createTabletop({
     }) : null;
 
     const bakeAlbedoMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
       uniforms: bakeUniforms,
       vertexShader: BAKE_VS,
       fragmentShader: commonGLSL + /* glsl */`
         uniform vec2 uTableCenter;
         uniform float uTableSpan, uBakeStep;
-        varying vec2 vUv;
+        in vec2 vUv;
+        out vec4 outColor;
         void main() {
           vec2 wp = uTableCenter + (vUv - 0.5) * uTableSpan;
           vec4 aux, a_;
@@ -842,7 +853,7 @@ export function createTabletop({
           ${fragColorGLSL.replaceAll('fwidth(vW.xz)', '(fwidth(vW.xz) * 0.25)')}
           ${fragEmisGLSL.replaceAll('fwidth(vW.xz)', '(fwidth(vW.xz) * 0.25)')}
           float em = clamp(max(totalEmissiveRadiance.r, max(totalEmissiveRadiance.g, totalEmissiveRadiance.b)) / 4.0, 0.0, 1.0);
-          gl_FragColor = vec4(sqrt(clamp(diffuseColor.rgb * 0.5, 0.0, 1.0)), em);
+          outColor = vec4(sqrt(clamp(diffuseColor.rgb * 0.5, 0.0, 1.0)), em);
         }
       `,
       depthTest: false,
@@ -867,6 +878,7 @@ export function createTabletop({
 
     const liveUniforms = {
       uExag: uniforms.uExag,
+      uReliefBoost: { value: TABLETOP_RELIEF_BOOST },
       uTime: uniforms.uTime,
       tNoise: uniforms.tNoise,
       tBakedAlbedo: { value: rtAlbedo.texture },
@@ -884,16 +896,17 @@ export function createTabletop({
     terrainMat.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, rtHeight ? liveUniforms : { ...uniforms, ...liveUniforms });
       const vsDecl = rtHeight
-        ? 'uniform sampler2D tBakedHeight; uniform vec2 uTableCenter; uniform float uTableSpan, uExag;\nvarying vec3 vW; varying vec3 vNW; varying vec2 vUvT;\n'
-        : commonGLSL + 'uniform vec2 uTableCenter; uniform float uTableSpan;\nattribute float aStep;\nvarying vec3 vW; varying vec3 vNW; varying vec2 vUvT;\n';
+        ? 'uniform sampler2D tBakedHeight; uniform vec2 uTableCenter; uniform float uTableSpan, uExag, uReliefBoost;\nvarying vec3 vW; varying vec3 vNW; varying vec2 vUvT;\n'
+        : commonGLSL + 'uniform vec2 uTableCenter; uniform float uTableSpan, uReliefBoost;\nattribute float aStep;\nvarying vec3 vW; varying vec3 vNW; varying vec2 vUvT;\n';
 
       const vsBody = rtHeight
         ? `
           vec2 wp = position.xz;
           vec2 uvT = clamp((wp - uTableCenter) / uTableSpan + 0.5, 0.0, 1.0);
           vec3 hd = texture2D(tBakedHeight, uvT).rgb;
+          float tExag = uExag * uReliefBoost;
           vW = vec3(wp.x, hd.r, wp.y);
-          vec3 objectNormal = normalize(vec3(-hd.g * uExag, 1.0, -hd.b * uExag));
+          vec3 objectNormal = normalize(vec3(-hd.g * tExag, 1.0, -hd.b * tExag));
           vNW = objectNormal; vUvT = uvT;
         `
         : `
@@ -903,14 +916,15 @@ export function createTabletop({
           float e = aStep;
           float hx1 = baseH(wp + vec2(e, 0.0), aux), hx0 = baseH(wp - vec2(e, 0.0), aux);
           float hz1 = baseH(wp + vec2(0.0, e), aux), hz0 = baseH(wp - vec2(0.0, e), aux);
+          float tExag = uExag * uReliefBoost;
           vW = vec3(wp.x, hC, wp.y);
-          vec3 objectNormal = normalize(vec3(-(hx1 - hx0) * uExag / (2.0 * e), 1.0, -(hz1 - hz0) * uExag / (2.0 * e)));
+          vec3 objectNormal = normalize(vec3(-(hx1 - hx0) * tExag / (2.0 * e), 1.0, -(hz1 - hz0) * tExag / (2.0 * e)));
           vNW = objectNormal; vUvT = uvT;
         `;
 
       sh.vertexShader = vsDecl + sh.vertexShader
         .replace('#include <beginnormal_vertex>', vsBody)
-        .replace('#include <begin_vertex>', 'vec3 transformed = vec3(vW.x, vW.y * uExag, vW.z);');
+        .replace('#include <begin_vertex>', 'vec3 transformed = vec3(vW.x, vW.y * uExag * uReliefBoost, vW.z);');
 
       sh.fragmentShader = /* glsl */`
         uniform sampler2D tBakedAlbedo, tNoise;
@@ -963,8 +977,8 @@ export function createTabletop({
     skirtMat.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, rtHeight ? liveUniforms : { ...uniforms, ...liveUniforms });
       const vsDecl = rtHeight
-        ? 'uniform sampler2D tBakedHeight; uniform vec2 uTableCenter; uniform float uTableSpan, uExag;\nattribute float aTop;\nvarying vec3 vW; varying vec3 vNW;\n'
-        : commonGLSL + 'attribute float aTop;\nvarying vec3 vW; varying vec3 vNW;\n';
+        ? 'uniform sampler2D tBakedHeight; uniform vec2 uTableCenter; uniform float uTableSpan, uExag, uReliefBoost;\nattribute float aTop;\nvarying vec3 vW; varying vec3 vNW;\n'
+        : commonGLSL + 'uniform float uReliefBoost;\nattribute float aTop;\nvarying vec3 vW; varying vec3 vNW;\n';
       const vsBody = rtHeight
         ? `
           vec2 wp = position.xz;
@@ -981,7 +995,7 @@ export function createTabletop({
 
       sh.vertexShader = vsDecl + sh.vertexShader
         .replace('#include <beginnormal_vertex>', vsBody)
-        .replace('#include <begin_vertex>', 'vec3 transformed = vec3(vW.x, vW.y * uExag, vW.z);');
+        .replace('#include <begin_vertex>', 'vec3 transformed = vec3(vW.x, vW.y * (aTop > 0.5 ? uExag * uReliefBoost : 1.0), vW.z);');
 
       sh.fragmentShader = /* glsl */`
         uniform sampler2D tNoise;
@@ -1296,6 +1310,7 @@ export function createTabletop({
       uPuffScale: { value: 1.24 },
       uSmokeBoost: { value: 1.62 },
       uWorldScale: { value: baseScale },
+      uReliefBoost: { value: TABLETOP_RELIEF_BOOST },
     };
 
     const smokeMesh = new THREE.Mesh(
@@ -1660,7 +1675,7 @@ export function createTabletop({
   let placed = false;
   let lastP = -1;
   let lastBakedSeq = -1;
-  let lastBakedHeightKey = '';
+  let lastBakedHeightKey = null;
   let lastBakeAt = 0;
   let lastSmokeSeq = -1;
   let lastGlowSeq = -1;
@@ -2669,7 +2684,7 @@ export function createTabletop({
     document.body.classList.add('in-xr');
     lastP = -1;
     lastBakedSeq = -1;
-    lastBakedHeightKey = '';
+    lastBakedHeightKey = null;
     lastSmokeSeq = -1;
     lastGlowSeq = -1;
     lastLight = '';
@@ -2696,16 +2711,23 @@ export function createTabletop({
       syncLighting(st.light);
     }
 
-    // Re-bake terrain cache only when timeline updates (512x512, height pass skipped when dome/era height unchanged)
+    // Re-bake terrain height & albedo caches when timeline/morph/lake/river state updates
     if (bakeTerrain) {
       const now = performance.now();
       const seq = st.seq ?? st.p;
       if (lastBakedSeq !== seq && (lastBakedSeq === -1 || !st.playing || now - lastBakeAt > 120)) {
         lastBakedSeq = seq;
         lastBakeAt = now;
-        const ps = uniforms.uParoxState?.value;
-        const hKey = ps ? `${ps.z.toFixed(4)}` : '';
-        const hDirty = hKey !== lastBakedHeightKey;
+        const m = uniforms.uMorph?.value;
+        const hKey = [
+          m ? `${m.x.toFixed(3)},${m.y.toFixed(3)},${m.z.toFixed(3)}` : '',
+          uniforms.uLakeMola ? uniforms.uLakeMola.value.toFixed(1) : '',
+          uniforms.uLakeActive ? uniforms.uLakeActive.value.toFixed(3) : '',
+          uniforms.uInletFlow ? uniforms.uInletFlow.value.toFixed(3) : '',
+          uniforms.uPlivaFlow ? uniforms.uPlivaFlow.value.toFixed(3) : '',
+          uniforms.uFlashFlood ? uniforms.uFlashFlood.value.toFixed(3) : '',
+        ].join('|');
+        const hDirty = lastBakedHeightKey === null || hKey !== lastBakedHeightKey;
         lastBakedHeightKey = hKey;
         bakeTerrain(hDirty);
       }
@@ -3133,7 +3155,7 @@ export function createTabletop({
     const stNow = state();
     if (ghostMesh) {
       ghostMesh.visible = !!stNow.ghost;
-      ghostMesh.scale.y = stNow.exag || 1;
+      ghostMesh.scale.y = (stNow.exag || 1) * TABLETOP_RELIEF_BOOST;
     }
 
     const hotGlow = (stNow.erupting ? 1 : 0) * (stNow.hot ?? (stNow.phase === 'fountain' || stNow.phase === 'overflow' ? 1 : 0.4));
@@ -3241,9 +3263,24 @@ export function createTabletop({
     }
   }
 
+  function renderPreview(cam) {
+    const st = state();
+    syncLighting(st.light || 'day');
+    holder.visible = true;
+    holder.position.set(0, 0, 0);
+    holder.scale.setScalar(DESK_SCALE);
+    holder.rotation.set(0, 0, 0);
+    holder.updateMatrixWorld(true);
+    _rotMat4.makeRotationFromQuaternion(holder.quaternion);
+    tableNormalMat.value.setFromMatrix4(_rotMat4);
+    if (bakeTerrain) bakeTerrain(true);
+    renderer.render(scene, cam);
+  }
+
   return {
     enter,
     update,
+    renderPreview,
     scene,
     get active() { return !!session; },
   };
